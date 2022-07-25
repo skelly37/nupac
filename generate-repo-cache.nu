@@ -3,8 +3,8 @@
 let REQUIRED_ATTRIBUTES = ["author" "name" "os" "short-desc" "raw-url" "url" "version"]
 let DEFAULT_ATTRIBUTES = {"pre-install-msg": "",
     "post-install-msg": "",
-    "keywords": [], 
-    "nu-dependencies": "", 
+    "keywords": [],
+    "nu-dependencies": "",
     "installer": "",
     "os": ["android" "macos" "linux" "windows"]
 }

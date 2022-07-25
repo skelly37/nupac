@@ -1,0 +1,28 @@
+---
+- name: Refresh cache
+  hosts: all
+  become: false
+
+  tasks:
+    - name: Stat nupac cache
+      stat:
+        path: "{{ nushell_dir }}/scripts/nupac.nuon"
+      register: cache
+
+    - name: Assert cache file does not exist
+      assert:
+        that: 'not cache.stat.exists'
+
+    - name: Refresh nupac cache
+      raw: "nupac refresh"
+      args:
+        executable: "{{ nu }}"
+
+    - name: Stat nupac cache again
+      stat:
+        path: "{{ nushell_dir }}/scripts/nupac.nuon"
+      register: cache
+
+    - name: Assert cache file exists
+      assert:
+        that: 'cache.stat.exists'

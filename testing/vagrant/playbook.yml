@@ -1,0 +1,6 @@
+---
+- name: Setup VM for testing
+  hosts: all
+  become: false
+  roles:
+    - yethal.nushell

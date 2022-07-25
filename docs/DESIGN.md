@@ -2,9 +2,9 @@
 `scripts` subdirectory in the Nushell's config folder. Type `$nu.config-path|path dirname` in your shell to find it.
 
 ## Cache index
-By default, the cache index refreshes after a day from previous download. 
+By default, the cache index refreshes after a day from previous download.
 
-Can be modified in `nupac.nu/freshness` but it's advised to keep it this way (one can simply use `nupac refresh` when needed). 
+Can be modified in `nupac.nu/freshness` but it's advised to keep it this way (one can simply use `nupac refresh` when needed).
 
 ## Commands
 - `nupac install`: *Installs provided set of packages and optionally adds them to the global scope*
@@ -33,9 +33,9 @@ Simple nupac config, just declare the specific variable in your env, if you want
   - If not declared, scripts directory in nushell's config directory will be used
 - `$env.NUPAC_IGNOREPKG`: *A list of scripts names excluded from the install/upgrade process*
   - If not declared, no script will be excluded from the install/upgrade process
-- `$env.NUPAC_NO_CONFIRM`: *If true, the user won't be prompted whether they want to proceed with the action* 
+- `$env.NUPAC_NO_CONFIRM`: *If true, the user won't be prompted whether they want to proceed with the action*
   - If not declared, nupac will act as if it's false and it will prompt for a confirmation
 - `$env.NUPAC_ADD_TO_SCRIPTS_LIST`: *If true, the scripts will be added to the aggregated list of nu scripts*
   - If not declared, nupac will act as if it's false and it will not add them to the list of scripts to maintain
-- `$env.NUPAC_IGNORE_SELF`: *If true, nupac won't upgrade itself* 
+- `$env.NUPAC_IGNORE_SELF`: *If true, nupac won't upgrade itself*
   - If not declared, nupac will act as if it's false and it will upgrade itself when needed

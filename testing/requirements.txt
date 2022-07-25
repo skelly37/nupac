@@ -1,0 +1,4 @@
+ansible
+docker
+molecule[docker]
+jmespath

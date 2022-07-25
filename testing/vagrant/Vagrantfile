@@ -1,0 +1,36 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+hostname = 'nupac'
+cpus = 4
+mem = 4096
+gui = false
+provider = 'virtualbox'
+box = 'generic/ubuntu2204'
+
+Vagrant.configure("2") do |config|
+  if Vagrant::Util::Platform.darwin?
+    if system('sysctl sysctl.proc_translated >/dev/null 2>&1')
+      provider = 'parallels'
+      box = 'ubuntu-22.04-arm'
+    end
+  end
+  config.vm.synced_folder "../../", "/vagrant"
+  config.vm.hostname = hostname
+  config.vm.box = box
+  config.vm.provider provider do |pv|
+    pv.gui = gui
+    pv.memory = mem
+    pv.cpus = cpus
+    pv.linked_clone = true
+    pv.name = hostname
+  end
+  config.ssh.extra_args = ["-t", "cd /vagrant; nu -l"]
+  config.vm.provision "ansible_local" do |ansible|
+    ansible.playbook = "testing/vagrant/playbook.yml"
+    ansible.galaxy_role_file = "testing/vagrant/requirements.yml"
+    ansible.galaxy_roles_path = '/home/vagrant/.ansible/roles'
+    ansible.extra_vars = {
+      nushell_version: "0.65.0"
+    }
+  end
+end

@@ -1,0 +1,41 @@
+---
+- name: Install package
+  hosts: all
+  become: false
+  vars:
+    package: make
+
+  tasks:
+    - name: Install package
+      raw: "nupac install {{ package }}"
+      args:
+        executable: "{{ nu }}"
+
+    - name: Assert package file was created and not added to scope
+      block:
+
+        - name: Stat {{ package }}.nu
+          stat:
+            path: "{{ nushell_dir }}/scripts/{{ package }}.nu"
+          register: package
+
+        - name: Check contents of nu-pkgs.nu file
+          lineinfile:
+            path: "{{ nushell_dir }}/scripts/nu-pkgs.nu"
+            line: "use {{ package }}.nu * # added automatically by nupac"
+            state: absent
+          check_mode: yes
+          register: line
+          failed_when: line is failed
+
+        - name: Get nushell scope
+          raw: "$nu.scope.commands|get command|to json"
+          args:
+            executable: "{{ nu }}"
+          register: scope
+
+        - name: Run assertions
+          assert:
+            that:
+              - package.stat.exists
+              - '{{ package }} not in {{ scope.stdout | from_json }}'

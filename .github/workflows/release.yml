@@ -20,7 +20,7 @@ jobs:
       - name: Setup Nu
         uses: hustcer/setup-nu@main
         with:
-          version: '0.63.0'
-      - name: Update json
+          version: '0.65.0'
+      - name: Update nuon
         run: ./generate-repo-cache.nu
 # action does not perform git push yet

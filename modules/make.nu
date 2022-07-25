@@ -1,73 +1,411 @@
-#?name: make
-#?author: [Yethal,]
-#?version: 1.0.0
-#?short-desc: makefile completions for nu
+#?name: nupac
+#?author: [skelly37, Yethal]
+#?version: 0.1.0
+#?short-desc: package manager for nushell
 #?long-desc: >
-#?    This module contains completions for
-#?    make build tool
-#?url: https://github.com/skelly37/nupac/blob/main/modules/make.nu
-#?raw-url: https://raw.githubusercontent.com/skelly37/nupac/main/modules/make.nu
-#?keywords: [make, build, completions]
+#?    Very long description
+#?    of nushell as package manager
+#?    wow so many words
+#?url: https://github.com/skelly37/nupac/blob/main/modules/nupac.nu
+#?raw-url: https://raw.githubusercontent.com/skelly37/nupac/main/modules/nupac.nu
+#?keywords: [package, management]
 
-def "nu-complete make" [] {
-  open Makefile
-  |lines -s
-  |str trim
-  |where not $it starts-with '.'
-  |split column ' '
-  |get column1
-  |where ($it|str ends-with ':')
-  |str replace ':' ''
+# get enviroment flag's value or return false
+def get-env-flag [
+    name: string
+] {
+    $env
+    |get -i $name
+    |default false
 }
 
-def "nu-complete make jobs" [] {
-  seq 1 (sys|get cpu|length)
+# Specified value, env value or hardcoded value of the flag
+def get-flag-value [
+    flag: bool
+    env-var: string
+] {
+    if ($flag) {
+        true
+    } else {
+        get-env-flag $env-var
+    }
 }
 
-def "nu-complete make files" [] {
-  ls **/*|where type == file|get name
+# Path where packages will be installed, can be changed to any other directory provided it is added to NU_LIB_DIRS variable
+def scripts-path [] {
+    $env
+    |get -i "NUPAC_DEFAULT_LIB_DIR"
+    |default ($nu.config-path
+        |path dirname
+        |path join 'scripts'
+    )
 }
 
-def "nu-complete make dirs" [] {
-  ls **/*|where type == dir|get name
+# We store cache index locally to avoid redownloading it on every command invocation
+def repo [] {
+    (scripts-path|path join 'nupac.nuon')
 }
-export extern "make" [
-  command?: string@"nu-complete make"
-  --always-make(-B)                                 # Unconditionally make all targets.
-  --directory(-C): string@"nu-complete make dirs"   # Change to DIRECTORY before doing anything.
-  --debug(-d)                                       # Print various types of debugging information.
-  --environment-overrides(-e)                       # Environment variables override makefiles.
-  --eval(-E): string                                # Evaluate STRING as a makefile statement.
-  --file(-f)                                        # Read FILE as a makefile.
-  --help(-h)                                        # Print this message and exit.
-  --ignore-errors(-i)                               # Ignore errors from recipes.
-  --include-dir(-I): string@"nu-complete make dirs" # Search DIRECTORY for included makefiles.
-  --jobs(-j): int@"nu-complete make jobs"           # Allow N jobs at once; infinite jobs with no arg.
-  --keep-going(-k)                                  # Keep going when some targets can't be made.
-  --load-average(-l): int@"nu-complete make jobs"   # Don't start multiple jobs unless load is below N.
-  --check-symlink-times(-L)                         # Use the latest mtime between symlinks and target.
-  --just-print(-n)                                  # Don't actually run any recipe; just print them.
-  --dry-run
-  --recon
-  --assume-old: string@"nu-complete make files"     # Consider FILE to be very old and don't remake it.
-  --old-file(-o): string@"nu-complete make files"
-  --output-sync(-O)                                 # Synchronize output of parallel jobs by TYPE.
-  --print-data-base(-p)                             # Print make's internal database.
-  --question(-q)                                    # Run no recipe; exit status says if up to date.
-  --no-builtin-rules(-r)                            # Disable the built-in implicit rules.
-  --no-builtin-variables(-R)                        # Disable the built-in variable settings.
-  --silent(-s)                                      # Don't echo recipes.
-  --quiet
-  --no-silent                                       # Echo recipes (disable --silent mode).
-  --stop(-S)                                        # Turns off -k.
-  --no-keep-going
-  --touch(-t)                                       # Touch targets instead of remaking them.
-  --trace                                           # Print tracing information.
-  --version(-v)                                     # Print the version number of make and exit.
-  --print-directory(-w)                             # Print the current directory.
-  --no-print-directory                              # Turn off -w, even if it was turned on implicitly.
-  --what-if(-W): string@"nu-complete make files"    # Consider FILE to be infinitely new.
-  --new-file: string@"nu-complete make files"
-  --assume-new: string@"nu-complete make files"
-  --warn-undefined-variables                        # Warn when an undefined variable is referenced.
-]
+
+# tweak this value if you want to change how often cache is refreshed
+def freshness [] {
+    1day
+}
+
+# checks if $env.NUPAC_IGNOREPKG has been declared (ignores installing and upgrading packages in the list)
+def get-ignored [] {
+    if ("NUPAC_IGNOREPKG" in $env) {
+        $env.NUPAC_IGNOREPKG
+    } else {
+        []
+    }
+}
+
+# returns record containing script metadata
+def get-metadata [
+    script: path
+] {
+    open $script
+    |lines -s
+    |where $it starts-with '#?'
+    |str replace -a -s '#?' ''
+    |str collect (char nl)
+    |from yaml
+}
+
+# returns all packages if os-supported, else raises errors and returns empty table (temp workaround for error errors)
+def packages-to-process [
+    packages: table
+] {
+    let unsupported-pkgs = ($packages
+        |where $nu.os-info.name not-in $it.os
+    )
+
+    let packages = (
+        $packages
+        |where $it not-in $unsupported-pkgs
+    )
+
+    if (not ($unsupported-pkgs|empty?)) {
+        user-readable-pkg-info $unsupported-pkgs
+        error make {
+            msg: "The listed packages cannot be installed, because OS is not supported"
+        }
+        []
+    } else {
+        $packages
+    }
+}
+
+# downloads fresh repository cache
+def update-repo [] {
+    fetch https://raw.githubusercontent.com/skelly37/nupac/main/nupac.nuon
+    |save (repo)
+
+    if ($env.LAST_EXIT_CODE == 0) {
+        print "Repository cached updated successfully"
+    } else {
+        error make {
+            msg: "Could not update the repository cache"
+        }
+    }
+}
+
+# returns cached contents of nupac repo
+def get-repo-contents [] {
+    if not (repo|path exists) {
+        print "Repo cache does not exist, fetching"
+        update-repo
+    } else if (ls -l (repo)|get 0.modified) < ((date now) - (freshness|into duration)) {
+        print $"Repo cache older than (freshness), refreshing"
+        update-repo
+    } else {
+        ignore
+    }
+    open (repo)
+}
+
+# whether the action was approved or not
+def user-approves [] {
+    if (get-env-flag "NUPAC_NO_CONFIRM") {
+        true
+    } else {
+        input "Do you want to proceed? [Y/n]"
+        |$in in ['' 'y' 'Y']
+    }
+}
+
+# returns packages with names matching provided arguments
+# if no arguments were provided returns all packages
+def get-packages [
+    ...names: string
+    --all: bool
+] {
+    ls (scripts-path)
+    |where ($it.name|path parse|get extension) == nu
+    |each {|package|
+        get-metadata (scripts-path|path join $package.name)
+    }
+    |where {|it|
+        if ($names|length) > 0 {
+            $it.name in $names
+        } else if $all {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+# returns formatted use statement that is added to config.nu on package installation
+def config-entry [
+    package: string
+] {
+    $"use ($package) * # added automatically by nupac"
+}
+
+# adds use statement to config so the package is available in global scope
+def add-to-config [
+    content: string
+] {
+    open $nu.config-path
+        |lines -s
+        |append $content
+        |str collect (char nl)
+        |save $nu.config-path
+}
+
+# removes use statement from config on package removal
+def remove-from-config [
+    content: string
+] {
+    open $nu.config-path
+    |lines -s
+    |where $it != $content
+    |str collect (char nl)
+    |save $nu.config-path
+}
+
+# package location in the filesystem
+def get-package-location [
+    package: record
+] {
+    scripts-path
+    |path join ($package.url|path basename)
+}
+
+# actual package installation happens here
+def install-package [
+    package: record
+    add-to-config: bool
+] {
+    print $"Installing ($package.name)"
+    fetch ($package.raw-url | into string)
+    |save (get-package-location $package | into string)
+
+    # TODO replace with nupac's own file
+    if $add-to-config {
+        add-to-config (config-entry ($package.url|path basename))
+    }
+}
+# actual package removal happens here
+def remove-package [
+    package: record
+] {
+    print $"Uninstalling ($package.name)"
+    rm -r (get-package-location $package | into string)
+    # TODO replace with nupac's own file
+    remove-from-config (config-entry ($package.url|path basename))
+}
+
+# checks whether version in repo cache is newer than version in script metadata, installs newer version if yes
+def upgrade-package [
+    package: record
+] {
+    if (get-repo-contents|where name == $package.name|get -i 0.version) > $package.version {
+        print $"Upgrading package ($package.name)"
+        install-package $package.name false
+    } else {
+        print $"Package ($package.name) up to date, not upgrading"
+    }
+}
+
+# display info about the package for the user
+def user-readable-pkg-info [
+    pkgs: table
+] {
+    $pkgs
+    |select name version author os short-desc
+    |update cells -c ["author" "os"] {|x| $x|str collect ', '}
+    |rename name version "author(s)" "supported OS" description
+}
+
+# prompt user what's going to be done
+def display-action-data [
+    pkgs: table
+    action: string
+] {
+    let action = if ($action|str ends-with "e") {
+        $action
+    } else {
+        $action + "e"
+    }
+
+    print (user-readable-pkg-info $pkgs)
+    print ($"The listed packages will be ($action)d")
+
+}
+
+# Installs provided set of packages and optionally adds them to the global scope
+export def "nupac install" [
+    ...packages: string # packages you want to install
+    --add-to-config(-a): bool # add packages to config
+    #
+    # Examples:
+    #
+    # Install package named example
+    #> nupac install example
+    #
+    # Install packages example, second-example and third-example
+    #> nupac install example second-example third-example
+    #
+    # Installs package named example and adds it to global scope
+    #> nupac install example -a
+] {
+    let add-to-config = (get-flag-value $add-to-config "NUPAC_ADD_TO_SCRIPTS_LIST")
+
+    let to-ins = (
+        packages-to-process (
+            get-repo-contents
+            |where name in $packages
+            |where name not-in (get-ignored)
+        )
+    )
+    if ($to-ins|empty?) {
+        print "No packages to install"
+    } else {
+        display-action-data $to-ins "install"
+        if (user-approves) {
+            $to-ins
+            |each {|package|
+                install-package $package $add-to-config
+            }
+        }
+    }
+}
+
+# Lists installed packages
+export def "nupac list" [] {
+    get-packages
+    |move short-desc long-desc --after name
+}
+
+# Refreshes the repo cache
+export def "nupac refresh" [] {
+  update-repo
+}
+
+# Removes provided set of packages and removes use statement from config.nu
+export def "nupac remove" [
+    ...packages: string
+    #
+    # Examples:
+    #
+    # Remove package named example
+    #> nupac remove example
+    #
+    # Remove packages example, second-example and third-example
+    #> nupac remove example second-example third-example
+] {
+    let to-del = (get-repo-contents | where name in $packages)
+
+    if ($to-del|empty?) {
+        print "No packages to remove"
+    } else {
+        display-action-data $to-del "remove"
+
+        if (user-approves) {
+            $to-del
+            |each {|package|
+                remove-package $package
+            }
+        }
+    }
+}
+
+# Searches remote repository for packages matching query with name, descriptions or keywords
+export def "nupac search" [
+    query: string
+    --all(-a): bool
+    #
+    # Examples:
+    #
+    # Search for package named example
+    #> nupac search example
+    #
+    # Search for package named example and display also packages unsupported by your OS
+    #> nupac search example --all
+] {
+    let found = (
+        get-repo-contents
+        |where name =~ $query or short-desc =~ $query or long-desc =~ $query or $query in keywords or $query in author
+    )
+
+    if $all {
+        user-readable-pkg-info $found
+    } else {
+        user-readable-pkg-info (
+            $found
+            |where $nu.os-info.name in $it.os
+        )
+    }
+}
+
+
+# Upgrades all or selected packages
+export def "nupac upgrade" [
+    ...packages: string
+    --all(-a): bool
+    --ignore-self(-i): bool
+    #
+    # Examples:
+    #
+    # Upgrade package named example
+    #> nupac upgrade example
+    #
+    # Upgrade packages example, second-example and third-example
+    #> nupac upgrade example second-example third-example
+    #
+    # Upgrade all packages
+    #> nupac upgrade --all
+    #
+    # Upgrade all packages excluding nupac itself
+    #> nupac upgrade --all --ignore-self
+] {
+    let ignore-self = (get-flag-value $ignore-self "NUPAC_IGNORE_SELF")
+
+    if (($packages|length) > 0 or $all) {
+        let to-upgrade = ( package-to-process (
+                (get-packages $packages $all)
+                |where name not-in (get-ignored)
+                |where name != (if $ignore-self {"nupac"} else {""})
+            )
+        )
+
+        if ($to-upgrade|empty?) {
+            print "No upgrades found"
+        } else {
+            display-action-data $to-upgrade "upgrade"
+
+            if (user-approves) {
+                $to-upgrade
+                |each {|package|
+                    upgrade-package $package
+                }
+            }
+        }
+    } else {
+        error make {
+          msg: "Either a list of packages or --all flag must be provided"
+        }
+    }
+}

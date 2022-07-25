@@ -1,0 +1,45 @@
+---
+role_name_check: 1
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: instance
+    image: ${DISTRO:-ubuntu:20.04}
+    dockerfile: Dockerfile.j2
+    tmpfs:
+      - /run
+      - /tmp
+    pre_build_image: false
+    env:
+      NUSHELL_INSTALL_DIR: /usr/bin
+      NUSHELL_INSTALL_VERSION: 0.65.0
+      NUPAC_INSTALLER_BRANCH: ${GITHUB_HEAD_REF:-add-nu-pkgs} #CHANGE THIS TO MASTER BEFORE MERGE
+      NUPAC_DEFAULT_BRANCH: ${GITHUB_HEAD_REF:-add-nu-pkgs} #CHANGE THIS TO MASTER BEFORE MERGE
+      NUPAC_NO_CONFIRM: 'true'
+provisioner:
+  name: ansible
+  playbooks:
+    converge: "${TEST:-install-package.yml}"
+  env:
+    MOLECULE_NO_LOG: true
+  inventory:
+    host_vars:
+      instance:
+        ansible_user: ansible
+        nushell_dir: "{{ ansible_env.HOME }}/.config/nushell"
+        nu: "{{ ansible_env.NUSHELL_INSTALL_DIR }}/nu --config {{ nushell_dir }}/config.nu --env-config {{ nushell_dir }}/env.nu"
+scenario:
+  test_sequence:
+    - destroy
+    - create
+    - prepare
+    - converge
+    - destroy
+  converge_sequence:
+    - create
+    - prepare
+    - converge
+  destroy_sequence:
+    - destroy

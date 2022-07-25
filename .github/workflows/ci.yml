@@ -1,0 +1,85 @@
+---
+name: CI
+'on':
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - add-nu-pkgs
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup Nu
+        uses: hustcer/setup-nu@v2
+        with:
+          version: '0.65.0'
+
+      - name: Run linter on all modules
+        run: ./testing/linter.nu
+        shell: nu {0}
+
+  generate-test-list:
+    name: Test setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup Nu
+        uses: hustcer/setup-nu@v2
+        with:
+          version: '0.65.0'
+
+      - name: Generate test list
+        id: generate-matrix
+        run: ./testing/get-testcases.nu
+        shell: nu {0}
+
+    outputs:
+      matrix: ${{ steps.generate-matrix.outputs.matrix }}
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    needs: generate-test-list
+    strategy:
+      fail-fast: false
+      matrix:
+        distro:
+          - ubuntu:20.04
+          - alpine:3.16.0
+        test: ${{ fromJson(needs.generate-test-list.outputs.matrix) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Python 3
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
+      - name: Set up Docker caching
+        uses: satackey/action-docker-layer-caching@v0.0.11
+
+      - name: Install dependencies
+        run: |
+          pip3 install wheel setuptools
+          pip3 install -r testing/requirements.txt
+
+      - name: Run ${{ matrix.test }}
+        run: |
+          cd testing
+          molecule test
+        env:
+          TEST: ${{ matrix.test }}
+          DISTRO: ${{ matrix.distro }}

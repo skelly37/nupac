@@ -1,0 +1,51 @@
+---
+- name: Smoke Test
+  hosts: all
+  become: false
+  vars:
+    command_list:
+      - nupac install
+      - nupac list
+      - nupac refresh
+      - nupac remove
+      - nupac search
+      - nupac upgrade
+
+  tasks:
+    - name: Copy the installer into the container
+      copy:
+        src: '../../../installer.nu'
+        dest: "{{ ansible_env.HOME }}"
+        mode: 0700
+        owner: "{{ ansible_user }}"
+
+    - name: Run the installer
+      raw: "nu -c {{ansible_env.HOME}}/installer.nu"
+      args:
+        executable: "{{ nu }}"
+      register: installer
+
+    - name: Verify the installer ran successfully
+      block:
+
+        - name: Stat files
+          stat:
+            path: "{{ nushell_dir }}/scripts/{{ item }}"
+          loop:
+            - nupac.nu
+            - nu-pkgs.nu
+          register: files
+
+        - name: Get nushell scope
+          raw: "$nu.scope.commands|get command|to json"
+          args:
+            executable: "{{ nu }}"
+          register: scope
+
+        - name: Run assertions
+          assert:
+            quiet: true
+            that:
+              - '"nupac has been successfully installed" in installer.stdout'
+              - '{{ command_list }} is subset({{ scope.stdout | from_json }})'
+              - "{{ files.results | map(attribute='stat.exists') }} is all"

@@ -1,0 +1,58 @@
+---
+- name: Uninstall package
+  hosts: all
+  become: false
+
+  tasks:
+    - name: Install package
+      raw: "nupac install make"
+      args:
+        executable: "{{ nu }}"
+
+    - name: Assert package file was created and command was added to scope
+      block:
+
+        - name: Stat make.nu
+          stat:
+            path: "{{ nushell_dir }}/scripts/make.nu"
+          register: package
+
+        - name: Get nushell scope
+          raw: "$nu.scope.commands|get command|to json"
+          args:
+            executable: "{{ nu }}"
+          register: scope
+
+        - name: Run assertions
+          assert:
+            that:
+              - package.stat.exists
+              - '"make" in {{ scope.stdout | from_json }}'
+
+    - name: Uninstall package
+      raw: "nupac uninstall make"
+      args:
+        executable: "{{ nu }}"
+
+    - name: Assert package file was removed and command was removed from scope
+      block:
+
+        - name: Stat make.nu
+          stat:
+            path: "{{ nushell_dir }}/scripts/make.nu"
+          register: package
+
+        - name: Get nushell scope
+          raw: "$nu.scope.commands|get command|to json"
+          args:
+            executable: "{{ nu }}"
+          register: scope
+
+        - name: Run assertions
+          assert:
+            that:
+              - not package.stat.exists
+              - '"make" not in {{ scope.stdout | from_json }}'
+
+
+

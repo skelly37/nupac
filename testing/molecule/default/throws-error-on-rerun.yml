@@ -1,0 +1,24 @@
+---
+- name: Throws error on rerun
+  hosts: all
+  become: false
+
+  tasks:
+    - name: Create nu-pkgs file
+      file:
+        path: "{{ nushell_dir }}/scripts/nu-pkgs.nu"
+        state: touch
+
+    - name: Run the installer script again
+      raw: "nu -c (fetch https://raw.githubusercontent.com/skelly37/nupac/{{ ansible_env.NUPAC_INSTALLER_BRANCH }}/installer.nu)"
+      args:
+        executable: "{{ nu }}"
+      register: installer
+      failed_when: false
+
+    - name: Assert error was thrown
+      assert:
+        that:
+          - 'installer.rc == 1'
+          - '"Error: " in installer.stderr_lines'
+          - '"nu-pkgs already exists." in installer.stderr'
